@@ -6,7 +6,8 @@ const fs = require("fs");
 
 const client = new Discord.Client({
   intents: [
-    Discord.GatewayIntentBits.Guilds
+    Discord.GatewayIntentBits.Guilds,
+    Discord.GatewayIntentBits.GuildMembers
   ]
 });
 
@@ -23,18 +24,6 @@ client.once("clientReady", () => {
   });
 });
 
-client.on('interactionCreate', async (interaction) => {
-  if (interaction.type === Discord.InteractionType.ApplicationCommand) {
-    const cmd = client.slashCommands.get(interaction.commandName);
-
-    if (!cmd) return interaction.reply({ content: 'Error', ephemeral: true });
-
-    interaction.member = interaction.guild.members.cache.get(interaction.user.id);
-
-    await cmd.run(client, interaction);
-  }
-});
-
 const interactionShowModalPrender = require("./Events/interactionShowModalPrender");
 const interactionFechatTicket = require("./Events/interactionFechatTicket");
 const interactionTicketCreate = require("./Events/interactionTicketCreate");
@@ -44,31 +33,67 @@ const interactionFormAusenciaModal = require("./Events/interactionFormAusenciaMo
 const interactionRegistro = require("./Events/interactionRegistro");
 
 client.on("interactionCreate", async (interaction) => {
-  await interactionTicketCreate(client, interaction);
-});
+  try {
+    if (interaction.isChatInputCommand()) {
+      const cmd = client.slashCommands.get(interaction.commandName);
 
-client.on("interactionCreate", async (interaction) => {
-  await interactionFechatTicket(client, interaction);
-});
+      if (!cmd) {
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({
+            content: "❌ Comando não encontrado.",
+            ephemeral: true
+          });
+        }
+        return;
+      }
 
-client.on("interactionCreate", async (interaction) => {
-  await interactionShowModalPrender(client, interaction);
-});
+      if (interaction.guild) {
+        interaction.member = interaction.guild.members.cache.get(interaction.user.id) || interaction.member;
+      }
 
-client.on("interactionCreate", async (interaction) => {
-  await interactionPostModalPrender(client, interaction);
-});
+      await cmd.run(client, interaction);
+      return;
+    }
 
-client.on("interactionCreate", async (interaction) => {
-  await interactionBatePonto(client, interaction);
-});
+    await interactionTicketCreate(client, interaction);
+    if (interaction.replied || interaction.deferred) return;
 
-client.on("interactionCreate", async (interaction) => {
-  await interactionFormAusenciaModal(client, interaction);
-});
+    await interactionFechatTicket(client, interaction);
+    if (interaction.replied || interaction.deferred) return;
 
-client.on("interactionCreate", async (interaction) => {
-  await interactionRegistro(client, interaction);
+    await interactionShowModalPrender(client, interaction);
+    if (interaction.replied || interaction.deferred) return;
+
+    await interactionPostModalPrender(client, interaction);
+    if (interaction.replied || interaction.deferred) return;
+
+    await interactionBatePonto(client, interaction);
+    if (interaction.replied || interaction.deferred) return;
+
+    await interactionFormAusenciaModal(client, interaction);
+    if (interaction.replied || interaction.deferred) return;
+
+    await interactionRegistro(client, interaction);
+    if (interaction.replied || interaction.deferred) return;
+
+  } catch (error) {
+    console.error("🚫 Erro na interação:", error);
+
+    try {
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({
+          content: "❌ Ocorreu um erro ao processar esta interação.",
+          ephemeral: true
+        });
+      } else if (interaction.deferred && !interaction.replied) {
+        await interaction.editReply({
+          content: "❌ Ocorreu um erro ao processar esta interação."
+        });
+      }
+    } catch (err) {
+      console.error("🚫 Erro ao responder interação:", err);
+    }
+  }
 });
 
 process.on('uncaughtException', (error) => {
