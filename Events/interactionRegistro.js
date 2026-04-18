@@ -47,7 +47,7 @@ const UNIDADES = [
 ];
 
 function sanitizeValue(value) {
-  return value
+  return String(value || '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-zA-Z0-9]+/g, '_')
@@ -63,9 +63,43 @@ function unidadeRoleId(unidade) {
   return config.REGISTRO?.UNIDADES?.[sanitizeValue(unidade)] || null;
 }
 
+function patenteSimbolo(patente) {
+  const mapa = {
+    'Soldado 2ª Classe': '[ ]',
+    'Soldado 1ª Classe': '[❯]',
+    'Cabo': '[❯❯]',
+    '3ª Sargento': '[❯❯❯]',
+    '2ª Sargento': '[❮ ❯❯❯]',
+    '1ª Sargento': '[❮❮ ❯❯❯]',
+    'Sub Tenente': '[△]',
+    'Aspirante A Oficial': '[✯]',
+    '2º Tenente': '[✧]',
+    '1º Tenente': '[✧✧]',
+    'Capitao': '[✦]',
+    'Tenente-Coronel': '[✦✦]',
+    'Coronel': '[✦✦✦]'
+  };
+
+  return mapa[patente] || '[❯]';
+}
+
+function safeName(text, max = 32) {
+  return String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
+
+function buildNick(patente, nome, idJogo) {
+  const simbolo = patenteSimbolo(patente);
+  const nomeLimpo = safeName(nome, 18);
+  const idLimpo = safeName(idJogo, 8);
+  return `${simbolo} ${nomeLimpo} | ${idLimpo}`.slice(0, 32);
+}
+
 function buildResumoEmbed(user, data) {
   return new Discord.EmbedBuilder()
-    .setColor(config.embedcolor)
+    .setColor(config.embedcolor || 0x2b2d31)
     .setAuthor({
       name: `${user.username} | Solicitação de Registro`,
       iconURL: user.displayAvatarURL({ dynamic: true })
@@ -83,7 +117,7 @@ function buildResumoEmbed(user, data) {
 
 function buildAprovacaoEmbed(solicitante, data) {
   return new Discord.EmbedBuilder()
-    .setColor(config.embedcolor)
+    .setColor(config.embedcolor || 0x2b2d31)
     .setAuthor({
       name: `${solicitante.username} | Registro Pendente`,
       iconURL: solicitante.displayAvatarURL({ dynamic: true })
@@ -157,6 +191,20 @@ function buildPainelSelecao(userId, patenteSelecionada = null, unidadeSelecionad
   ];
 }
 
+async function replyEphemeral(interaction, content) {
+  if (interaction.replied || interaction.deferred) {
+    return interaction.followUp({
+      content,
+      flags: Discord.MessageFlags.Ephemeral
+    });
+  }
+
+  return interaction.reply({
+    content,
+    flags: Discord.MessageFlags.Ephemeral
+  });
+}
+
 module.exports = async (client, interaction) => {
   if (interaction.isButton() && interaction.customId === 'registro_abrir') {
     const modal = new Discord.ModalBuilder()
@@ -228,14 +276,11 @@ module.exports = async (client, interaction) => {
           })
         ],
         components: buildPainelSelecao(interaction.user.id),
-        ephemeral: true
+        flags: Discord.MessageFlags.Ephemeral
       });
     } catch (err) {
       console.error(err);
-      return interaction.reply({
-        content: '❌ | Ocorreu um erro ao salvar seu registro.',
-        ephemeral: true
-      });
+      return replyEphemeral(interaction, '❌ | Ocorreu um erro ao salvar seu registro.');
     }
   }
 
@@ -247,20 +292,14 @@ module.exports = async (client, interaction) => {
     const [, targetUserId] = interaction.customId.split(':');
 
     if (interaction.user.id !== targetUserId) {
-      return interaction.reply({
-        content: '❌ | Este painel não pertence a você.',
-        ephemeral: true
-      });
+      return replyEphemeral(interaction, '❌ | Este painel não pertence a você.');
     }
 
     try {
       const registroAtual = await getRegistro(interaction.user.id);
 
       if (!registroAtual) {
-        return interaction.reply({
-          content: '❌ | Registro não encontrado. Abra o painel novamente.',
-          ephemeral: true
-        });
+        return replyEphemeral(interaction, '❌ | Registro não encontrado. Abra o painel novamente.');
       }
 
       let novaPatente = registroAtual.patente;
@@ -294,10 +333,7 @@ module.exports = async (client, interaction) => {
       });
     } catch (err) {
       console.error(err);
-      return interaction.reply({
-        content: '❌ | Ocorreu um erro ao atualizar seu registro.',
-        ephemeral: true
-      });
+      return replyEphemeral(interaction, '❌ | Ocorreu um erro ao atualizar seu registro.');
     }
   }
 
@@ -305,36 +341,24 @@ module.exports = async (client, interaction) => {
     const [, targetUserId] = interaction.customId.split(':');
 
     if (interaction.user.id !== targetUserId) {
-      return interaction.reply({
-        content: '❌ | Este painel não pertence a você.',
-        ephemeral: true
-      });
+      return replyEphemeral(interaction, '❌ | Este painel não pertence a você.');
     }
 
     try {
       const data = await getRegistro(interaction.user.id);
 
       if (!data) {
-        return interaction.reply({
-          content: '❌ | Registro não encontrado. Abra o painel novamente.',
-          ephemeral: true
-        });
+        return replyEphemeral(interaction, '❌ | Registro não encontrado. Abra o painel novamente.');
       }
 
       if (!data.patente || !data.unidade) {
-        return interaction.reply({
-          content: '❌ | Selecione a patente e a unidade antes de enviar.',
-          ephemeral: true
-        });
+        return replyEphemeral(interaction, '❌ | Selecione a patente e a unidade antes de enviar.');
       }
 
       const canalAprovacao = interaction.guild.channels.cache.get(config.REGISTRO?.canal_aprovacao);
 
       if (!canalAprovacao) {
-        return interaction.reply({
-          content: '❌ | O canal de aprovação do registro não foi configurado.',
-          ephemeral: true
-        });
+        return replyEphemeral(interaction, '❌ | O canal de aprovação do registro não foi configurado.');
       }
 
       const embedAprovacao = buildAprovacaoEmbed(interaction.user, data);
@@ -368,10 +392,7 @@ module.exports = async (client, interaction) => {
       });
     } catch (err) {
       console.error(err);
-      return interaction.reply({
-        content: '❌ | Ocorreu um erro ao enviar seu registro.',
-        ephemeral: true
-      });
+      return replyEphemeral(interaction, '❌ | Ocorreu um erro ao enviar seu registro.');
     }
   }
 
@@ -381,34 +402,25 @@ module.exports = async (client, interaction) => {
       interaction.customId.startsWith('registro_recusar:'))
   ) {
     if (!interaction.member.permissions.has(Discord.PermissionFlagsBits.ManageRoles)) {
-      return interaction.reply({
-        content: '❌ | Você não possui permissão para gerenciar registros.',
-        ephemeral: true
-      });
+      return replyEphemeral(interaction, '❌ | Você não possui permissão para gerenciar registros.');
     }
 
-    const [action, userId] = interaction.customId.split(':');
+    const [acao, userId] = interaction.customId.split(':');
 
     try {
       const row = await getRegistro(userId);
 
       if (!row) {
-        return interaction.reply({
-          content: '❌ | Registro não encontrado ou já processado.',
-          ephemeral: true
-        });
+        return replyEphemeral(interaction, '❌ | Registro não encontrado ou já processado.');
       }
 
       const membro = await interaction.guild.members.fetch(userId).catch(() => null);
 
       if (!membro) {
-        return interaction.reply({
-          content: '❌ | Não foi possível localizar o membro no servidor.',
-          ephemeral: true
-        });
+        return replyEphemeral(interaction, '❌ | Não foi possível localizar o membro no servidor.');
       }
 
-      if (action === 'registro_aceitar') {
+      if (acao === 'registro_aceitar') {
         const cargosAdicionar = [];
 
         if (config.REGISTRO?.cargo_fixo) cargosAdicionar.push(config.REGISTRO.cargo_fixo);
@@ -420,19 +432,26 @@ module.exports = async (client, interaction) => {
         if (roleUnidade) cargosAdicionar.push(roleUnidade);
 
         try {
+          if (config.REGISTRO?.cargo_sem_funcional) {
+            await membro.roles.remove(config.REGISTRO.cargo_sem_funcional).catch(() => null);
+          }
+
           if (cargosAdicionar.length > 0) {
             await membro.roles.add(cargosAdicionar);
           }
+
+          const novoNick = buildNick(row.patente, row.nome, row.id_jogo);
+          await membro.setNickname(novoNick).catch(() => null);
         } catch (roleError) {
           console.error(roleError);
-          return interaction.reply({
-            content: '❌ | Não foi possível adicionar os cargos. Verifique a hierarquia do bot.',
-            ephemeral: true
-          });
+          return replyEphemeral(
+            interaction,
+            '❌ | Não foi possível adicionar os cargos ou alterar o nick. Verifique a hierarquia do bot.'
+          );
         }
 
         const aprovado = new Discord.EmbedBuilder()
-          .setColor(config.embedcolor)
+          .setColor(config.embedcolor || 0x2b2d31)
           .setTitle('Registro Aprovado')
           .setDescription(`${membro} teve o registro aprovado com sucesso.`)
           .addFields(
@@ -456,39 +475,38 @@ module.exports = async (client, interaction) => {
           'UPDATE registros_pendentes SET status = ? WHERE usuario_id = ?',
           ['aprovado', userId]
         );
-      } else {
-        const recusado = new Discord.EmbedBuilder()
-          .setColor(config.embedcolor)
-          .setTitle('Registro Recusado')
-          .setDescription(`${membro} teve o registro recusado.`)
-          .addFields(
-            { name: 'Nome', value: row.nome || 'Não informado', inline: true },
-            { name: 'ID', value: row.id_jogo || 'Não informado', inline: true },
-            { name: 'Patente', value: row.patente || 'Não selecionada', inline: true },
-            { name: 'Unidade', value: row.unidade || 'Não selecionada', inline: true },
-            { name: 'Permissão', value: row.permissao || 'Não informada', inline: false },
-            { name: 'Recusado por', value: `${interaction.user}`, inline: false }
-          );
 
-        await interaction.update({
-          content: `${membro}`,
-          embeds: [recusado],
-          components: []
-        });
-
-        await membro.send({ embeds: [recusado] }).catch(() => null);
-
-        await runQuery(
-          'UPDATE registros_pendentes SET status = ? WHERE usuario_id = ?',
-          ['recusado', userId]
-        );
+        return;
       }
+
+      const recusado = new Discord.EmbedBuilder()
+        .setColor(config.embedcolor || 0x2b2d31)
+        .setTitle('Registro Recusado')
+        .setDescription(`${membro} teve o registro recusado.`)
+        .addFields(
+          { name: 'Nome', value: row.nome || 'Não informado', inline: true },
+          { name: 'ID', value: row.id_jogo || 'Não informado', inline: true },
+          { name: 'Patente', value: row.patente || 'Não selecionada', inline: true },
+          { name: 'Unidade', value: row.unidade || 'Não selecionada', inline: true },
+          { name: 'Permissão', value: row.permissao || 'Não informada', inline: false },
+          { name: 'Recusado por', value: `${interaction.user}`, inline: false }
+        );
+
+      await interaction.update({
+        content: `${membro}`,
+        embeds: [recusado],
+        components: []
+      });
+
+      await membro.send({ embeds: [recusado] }).catch(() => null);
+
+      await runQuery(
+        'UPDATE registros_pendentes SET status = ? WHERE usuario_id = ?',
+        ['recusado', userId]
+      );
     } catch (err) {
       console.error(err);
-      return interaction.reply({
-        content: '❌ | Ocorreu um erro ao processar o registro.',
-        ephemeral: true
-      });
+      return replyEphemeral(interaction, '❌ | Ocorreu um erro ao processar o registro.');
     }
   }
 };
